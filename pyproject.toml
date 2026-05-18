@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentry_taskbroker_management"
+version = "0.0.1"
+description = "Libraries used by Sentry for Taskbroker management"
+readme = "README.md"
+requires-python = ">= 3.11"
+dependencies = [
+  "click>=8.0.0",
+]
+
+[project.scripts]
+taskbroker-scripts = "sentry_taskbroker_management.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.1.2",
+  "sentry_devenv>=1.22.2",
+  "mypy>=1.17.1",
+  "pre-commit>=4.1.0",
+  "black>=24.10.0",
+  "isort>=5.13.0",
+  "flake8>=7.1.1"
+]
+
+[tool.uv]
+environments = ["sys_platform == 'darwin' or sys_platform == 'linux'"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sentry_taskbroker_management*"]
+
+[tool.setuptools.package-data]
+sentry_taskbroker_management = ["py.typed"]
+
+[[tool.uv.index]]
+url = "https://pypi.devinfra.sentry.io/simple"
+default = true
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = "devenv.*"
+ignore_missing_imports = true
+
+[tool.black]
+# File filtering is taken care of in pre-commit.
+line-length = 100

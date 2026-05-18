@@ -1,0 +1,47 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-case-conflict
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-xml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+        # The release script adds a new line at the end of the CHANGELOG.md
+        # file. Then during CI on the release branch pre-commit tries to remove
+        # it, thus fails. Excluding it here.
+        exclude: ^CHANGELOG.md$
+      - id: trailing-whitespace
+      - id: fix-encoding-pragma
+        args: ["--remove"]
+  - repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 24.10.0
+    hooks:
+      - id: black
+        files: ^(sentry_taskbroker_management|tests)/.+
+        args: [--config=./pyproject.toml]
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        language_version: python3.12
+  - repo: https://github.com/pycqa/isort
+    rev: 6.0.0
+    hooks:
+      - id: isort
+        name: isort (python)
+        files: ^(sentry_taskbroker_management|tests)/.+
+        args: [--settings-path=./pyproject.toml]
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        files: ^(sentry_taskbroker_management|tests)/.*\.py$
+        types: [python]
+        language: system
+
+default_language_version:
+  python: "3.12.6"
