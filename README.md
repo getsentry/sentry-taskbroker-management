@@ -17,7 +17,7 @@ Build the image:
 docker build -t sentry-taskbroker-management:local .
 ```
 
-Show CLI help (router):
+Show available commands:
 
 ```bash
 docker run --rm sentry-taskbroker-management:local --help
