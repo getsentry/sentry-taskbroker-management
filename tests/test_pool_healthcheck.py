@@ -12,7 +12,9 @@ from sentry_taskbroker_management.scripts.pools.healthcheck import (
 HEALTHCHECK = "sentry_taskbroker_management.scripts.pools.healthcheck"
 
 
-def _deployment(replicas: int, ready_replicas: int, has_grpc_probe: bool = True) -> SimpleNamespace:
+def _deployment(
+    replicas: int | None, ready_replicas: int, has_grpc_probe: bool = True
+) -> SimpleNamespace:
     """Build a minimal stand-in for a V1Deployment with the attributes we read."""
     probe = SimpleNamespace(grpc=object()) if has_grpc_probe else None
     container = SimpleNamespace(readiness_probe=probe)
@@ -62,6 +64,13 @@ def test_fails_fast_on_forbidden() -> None:
     forbidden = client.exceptions.ApiException(status=403)
     result = _run(read_side_effect=forbidden)
     # 403 raises SystemExit rather than polling until timeout.
+    assert result.exit_code != 0
+    assert isinstance(result.exception, SystemExit)
+
+
+def test_fails_fast_on_none_replicas() -> None:
+    result = _run(read_side_effect=[_deployment(replicas=None, ready_replicas=0)])
+    # spec.replicas=None is unexpected for a live Deployment; fail fast, don't time out.
     assert result.exit_code != 0
     assert isinstance(result.exception, SystemExit)
 

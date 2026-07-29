@@ -47,6 +47,14 @@ def _pool_ready(api: client.AppsV1Api, deployment_name: str, namespace: str) -> 
             )
         raise
     desired = dep.spec.replicas
+    if desired is None:
+        # A live Deployment always has spec.replicas populated (the apiserver defaults
+        # it to 1), so None means we're reading something unexpected — fail loudly rather
+        # than polling to a misleading timeout.
+        raise SystemExit(
+            f"Deployment '{deployment_name}' has spec.replicas=None; cannot determine "
+            "the desired replica count. Refusing to certify."
+        )
     ready_replicas = dep.status.ready_replicas or 0
     probe = dep.spec.template.spec.containers[0].readiness_probe
     if probe is None or probe.grpc is None:
@@ -55,7 +63,7 @@ def _pool_ready(api: client.AppsV1Api, deployment_name: str, namespace: str) -> 
             "would not reflect taskbroker gRPC health. Refusing to certify."
         )
     click.echo(f"  {deployment_name}: {ready_replicas}/{desired} ready", err=True)
-    return bool(desired) and ready_replicas == desired
+    return desired > 0 and ready_replicas == desired
 
 
 @click.command()
