@@ -63,7 +63,9 @@ def _pool_ready(api: client.AppsV1Api, deployment_name: str, namespace: str) -> 
             "would not reflect taskbroker gRPC health. Refusing to certify."
         )
     click.echo(f"  {deployment_name}: {ready_replicas}/{desired} ready", err=True)
-    return desired > 0 and ready_replicas == desired
+    # bool(...) because the kubernetes client is untyped: desired/ready_replicas are Any,
+    # so the comparison is Any and strict mypy rejects returning it as bool.
+    return bool(desired > 0 and ready_replicas == desired)
 
 
 @click.command()
