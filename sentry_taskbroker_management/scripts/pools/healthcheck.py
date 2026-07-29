@@ -124,9 +124,12 @@ def pool_healthcheck(
         except client.exceptions.ApiException as exc:
             # transient (5xx / network); 401/403 already raised inside _pool_ready
             click.echo(f"transient k8s API error, retrying: {exc}", err=True)
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             raise HealthcheckTimeoutError(
                 f"timed out after {timeout}s waiting for pool '{pool_name}' "
                 f"(deployment '{deployment_name}') in ns '{namespace}' to become ready"
             )
-        time.sleep(check_interval)
+        # Cap the sleep to the time left so a check_interval larger than the
+        # remaining budget can't push total runtime past the timeout.
+        time.sleep(min(check_interval, remaining))
