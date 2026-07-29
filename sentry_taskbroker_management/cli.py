@@ -5,8 +5,11 @@ from __future__ import annotations
 import click
 
 from sentry_taskbroker_management import __version__
+from sentry_taskbroker_management.scripts.pools.healthcheck import pool_healthcheck
 
-COMMANDS: list[click.Command] = []
+COMMANDS: list[click.Command] = [
+    pool_healthcheck,
+]
 
 
 @click.group()
