@@ -1,0 +1,23 @@
+# A pool whose broker Deployment has NO gRPC readiness probe. Its pods still go
+# Ready (pause has no probe), but `pool-healthcheck` must refuse to certify it,
+# because without the gRPC probe readyReplicas would not reflect taskbroker gRPC
+# health. Exercises the "Refusing to certify" fail-fast path.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: task-nogrpc-broker
+  labels:
+    app: task-nogrpc-broker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: task-nogrpc-broker
+  template:
+    metadata:
+      labels:
+        app: task-nogrpc-broker
+    spec:
+      containers:
+        - name: broker
+          image: registry.k8s.io/pause:3.9
