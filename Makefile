@@ -1,4 +1,4 @@
-.PHONY: reset install-dev install-pre-commit-hook tests typecheck lint build smoke-test
+.PHONY: reset install-dev install-pre-commit-hook tests typecheck lint build
 
 reset:
 	rm -rf .venv
@@ -29,8 +29,3 @@ lint:
 
 build:
 	uv build --wheel
-
-# Local, cluster-backed smoke test for the pool-healthcheck command.
-# Requires a local Kubernetes cluster (see smoke-test/README.md). Not run in CI.
-smoke-test:
-	./smoke-test/run.sh
