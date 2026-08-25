@@ -2,27 +2,26 @@
 
 from __future__ import annotations
 
-import click
+import argparse
 
 from sentry_taskbroker_management import __version__
-from sentry_taskbroker_management.scripts.pools.healthcheck import pool_healthcheck
-
-COMMANDS: list[click.Command] = [
-    pool_healthcheck,
-]
 
 
-@click.group()
-@click.version_option(version=__version__, prog_name="sentry-taskbroker-management")
-def main() -> None:
-    """
-    CLI entrypoint for sentry-taskbroker-management.
-    """
-    pass
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="sentry-taskbroker-management")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"sentry-taskbroker-management {__version__}",
+    )
+    parser.add_subparsers(dest="command", required=True)
+    return parser
 
 
-for command in COMMANDS:
-    main.add_command(command)
+def main(argv: list[str] | None = None) -> None:
+    """CLI entrypoint for sentry-taskbroker-management."""
+    build_parser().parse_args(argv)
+
 
 if __name__ == "__main__":
     main()

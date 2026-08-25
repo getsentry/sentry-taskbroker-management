@@ -1,17 +1,17 @@
-from click.testing import CliRunner
+import pytest
 
 from sentry_taskbroker_management.cli import main
 
 
-def test_cli_help() -> None:
-    runner = CliRunner()
-    result = runner.invoke(main, ["--help"])
-    assert result.exit_code == 0
-    assert "sentry-taskbroker-management" in result.output
+def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--help"])
+    assert exc.value.code == 0
+    assert "sentry-taskbroker-management" in capsys.readouterr().out
 
 
-def test_cli_version() -> None:
-    runner = CliRunner()
-    result = runner.invoke(main, ["--version"])
-    assert result.exit_code == 0
-    assert "sentry-taskbroker-management" in result.output
+def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert "sentry-taskbroker-management" in capsys.readouterr().out
