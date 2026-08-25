@@ -35,13 +35,18 @@ def _canary_args(num_tasks: int) -> list[str]:
     ]
 
 
-def _build_producer_job(deployment: object, container_name: str, num_tasks: int) -> client.V1Job:
+def _build_producer_job(
+    deployment: object, container_name: str, num_tasks: int, timeout: int
+) -> client.V1Job:
     """Turn a getsentry Deployment's pod template into a one-time producer Job, reusing its
     image/env/secrets/mounts/labels and overriding only what a one-shot producer needs.
 
     Init containers are dropped because the source's init-geoip busybox blocks forever
     waiting for a GeoIP file this Job never gets; the pod labels are kept because
-    NetworkPolicy keys Kafka access off them.
+    NetworkPolicy keys Kafka access off them. `command` is cleared so the invocation is
+    defined entirely by `args` on the image entrypoint, regardless of the source's command.
+    `active_deadline_seconds` bounds the Job to the same budget the CLI waits, so a run that
+    outlives the poll timeout can't keep seeding the canary topic.
     """
     template = deployment.spec.template  # type: ignore[attr-defined]
     pod_spec = template.spec
@@ -54,6 +59,7 @@ def _build_producer_job(deployment: object, container_name: str, num_tasks: int)
             f"(containers: {names})."
         )
     container = matching[0]
+    container.command = None
     container.args = _canary_args(num_tasks)
     container.readiness_probe = None
     container.liveness_probe = None
@@ -70,6 +76,7 @@ def _build_producer_job(deployment: object, container_name: str, num_tasks: int)
         metadata=client.V1ObjectMeta(generate_name=JOB_NAME_PREFIX),
         spec=client.V1JobSpec(
             backoff_limit=0,
+            active_deadline_seconds=timeout,
             ttl_seconds_after_finished=600,
             template=template,
         ),
@@ -183,7 +190,7 @@ def run(args: argparse.Namespace) -> None:
     batch = client.BatchV1Api()
 
     deployment = _read_source_deployment(apps, args.source_deployment, args.namespace)
-    job = _build_producer_job(deployment, args.container_name, num_tasks)
+    job = _build_producer_job(deployment, args.container_name, num_tasks, args.timeout)
 
     try:
         created = batch.create_namespaced_job(args.namespace, job)

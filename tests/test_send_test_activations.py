@@ -4,9 +4,10 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
+import pytest
 from kubernetes import client  # type: ignore[import-untyped]
 
-from sentry_taskbroker_management.cli import build_parser
+from sentry_taskbroker_management.cli import build_parser, main
 from sentry_taskbroker_management.scripts.pools.test_activations import (
     ProducerJobFailedError,
     ProducerJobTimeoutError,
@@ -129,6 +130,7 @@ def test_strips_pod_spec_for_one_shot_job() -> None:
     assert pod_spec.init_containers is None
     assert pod_spec.restart_policy == "Never"
     container = pod_spec.containers[0]
+    assert container.command is None  # invocation defined by args on the image entrypoint
     assert container.readiness_probe is None
     assert container.liveness_probe is None
     assert container.startup_probe is None
@@ -141,6 +143,12 @@ def test_job_spec_runs_once_and_self_cleans() -> None:
     assert job.spec.backoff_limit == 0
     assert job.spec.ttl_seconds_after_finished == 600
     assert job.metadata.generate_name == "taskbroker-test-activations-"
+
+
+def test_job_bounded_by_active_deadline() -> None:
+    # active_deadline_seconds is tied to --timeout so a run can't outlive the poll budget.
+    _, batch = _run(extra_args=["--timeout", "30"])
+    assert _submitted_job(batch).spec.active_deadline_seconds == 30
 
 
 def test_rejects_nonpositive_num_tasks() -> None:
@@ -189,3 +197,20 @@ def test_times_out_when_job_never_completes() -> None:
     result, _ = _run(status_return=_status(succeeded=0, failed=0))
     assert result.exit_code != 0
     assert isinstance(result.exception, ProducerJobTimeoutError)
+
+
+def test_main_reports_job_failure_as_clean_exit() -> None:
+    # main() turns a producer-Job failure into a SystemExit (clean message), not a traceback.
+    apps = mock.Mock()
+    apps.read_namespaced_deployment.side_effect = [_deployment()]
+    batch = mock.Mock()
+    batch.create_namespaced_job.return_value = _created()
+    batch.read_namespaced_job_status.return_value = _status(succeeded=0, failed=1)
+    with (
+        mock.patch(f"{MOD}.load_kube_config"),
+        mock.patch(f"{MOD}.client.AppsV1Api", return_value=apps),
+        mock.patch(f"{MOD}.client.BatchV1Api", return_value=batch),
+    ):
+        with pytest.raises(SystemExit) as exc:
+            main(["send-test-activations", "--timeout", "0", "--check-interval", "0"])
+    assert "failed" in str(exc.value)
