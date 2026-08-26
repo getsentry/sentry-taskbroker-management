@@ -9,8 +9,11 @@ from kubernetes import client  # type: ignore[import-untyped]
 from sentry_taskbroker_management.scripts.pools._kube import load_kube_config
 
 CANARY_TOPIC = "taskworker-canary"
-CANARY_TASK_FUNCTION_PATH = "canary_task"
-CANARY_NAMESPACE = "internal"
+# Reuse the existing no-op example task (already registered in every worker via
+# TASKWORKER_IMPORTS and used by the getsentry example-task-runner). --namespace must be the
+# task's own namespace ("examples") so taskbroker-send-tasks' route override targets the topic.
+CANARY_TASK_FUNCTION_PATH = "sentry.taskworker.tasks.examples.simple_task"
+CANARY_NAMESPACE = "examples"
 JOB_NAME_PREFIX = "taskbroker-test-activations-"
 
 

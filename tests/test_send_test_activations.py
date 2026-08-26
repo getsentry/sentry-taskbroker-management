@@ -115,8 +115,8 @@ def test_builds_bounded_canary_invocation() -> None:
     assert args == [
         "run",
         "taskbroker-send-tasks",
-        "--task-function-path=canary_task",
-        "--namespace=internal",
+        "--task-function-path=sentry.taskworker.tasks.examples.simple_task",
+        "--namespace=examples",
         "--kafka-topic=taskworker-canary",
         "--repeat=5",
     ]
