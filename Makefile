@@ -1,4 +1,4 @@
-.PHONY: reset install-dev install-pre-commit-hook tests typecheck lint build
+.PHONY: reset install-dev install-pre-commit-hook tests typecheck lint build smoke-test
 
 reset:
 	rm -rf .venv
@@ -29,3 +29,7 @@ lint:
 
 build:
 	uv build --wheel
+
+# Cluster-backed smoke test; needs a local kube-context (see smoke-test/README.md).
+smoke-test:
+	./smoke-test/run.sh

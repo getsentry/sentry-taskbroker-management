@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 
@@ -172,6 +173,12 @@ def add_subparser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser
         default=10,
         help="How often in seconds to poll the Job's status (default: 10).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the producer Job manifest to stdout and exit without creating it. Still reads "
+        "the source Deployment, so it needs `get` on it but not `create` on Jobs.",
+    )
     parser.set_defaults(func=run)
 
 
@@ -191,6 +198,16 @@ def run(args: argparse.Namespace) -> None:
 
     deployment = _read_source_deployment(apps, args.source_deployment, args.namespace)
     job = _build_producer_job(deployment, args.container_name, num_tasks, args.timeout)
+
+    if args.dry_run:
+        manifest = client.ApiClient().sanitize_for_serialization(job)
+        print(json.dumps(manifest, indent=2, sort_keys=True))
+        print(
+            f"dry-run: built producer job for ns '{args.namespace}' "
+            f"({num_tasks} tasks -> '{CANARY_TOPIC}'); not created",
+            file=sys.stderr,
+        )
+        return
 
     try:
         created = batch.create_namespaced_job(args.namespace, job)

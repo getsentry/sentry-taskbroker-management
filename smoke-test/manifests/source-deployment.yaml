@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smoke-source-task-runner
+  labels:
+    system: kafka_consumer
+spec:
+  # 0 replicas: we never need a running pod, only a readable Deployment object
+  # whose pod template send-test-activations copies to build the producer Job.
+  replicas: 0
+  selector:
+    matchLabels:
+      app: smoke-source-task-runner
+  template:
+    metadata:
+      labels:
+        app: smoke-source-task-runner
+        system: kafka_consumer
+    spec:
+      containers:
+        # Named `sentry` to match --container's default. It stands in for the
+        # getsentry container; the busybox image can't actually run
+        # `taskbroker-send-tasks`, which is what makes case 3's Job fail fast.
+        - name: sentry
+          image: busybox:1.36
+          args:
+            - run
+            - taskbroker-send-tasks
+            - --infinite

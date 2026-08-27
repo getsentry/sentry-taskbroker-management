@@ -41,6 +41,26 @@ def _deployment(container_name: str = "sentry") -> SimpleNamespace:
     return SimpleNamespace(spec=SimpleNamespace(template=template))
 
 
+def _real_deployment() -> client.V1Deployment:
+    """A real (serializable) V1Deployment, so --dry-run can round-trip the built Job through the
+    kubernetes client's serializer the same way it would against a live cluster."""
+    container = client.V1Container(
+        name="sentry",
+        image="getsentry:latest",
+        args=["run", "taskbroker-send-tasks", "--infinite"],
+    )
+    template = client.V1PodTemplateSpec(
+        metadata=client.V1ObjectMeta(labels={"system": "kafka_consumer"}),
+        spec=client.V1PodSpec(containers=[container]),
+    )
+    return client.V1Deployment(
+        spec=client.V1DeploymentSpec(
+            selector=client.V1LabelSelector(match_labels={"system": "kafka_consumer"}),
+            template=template,
+        )
+    )
+
+
 def _status(succeeded: int = 0, failed: int = 0) -> SimpleNamespace:
     return SimpleNamespace(status=SimpleNamespace(succeeded=succeeded, failed=failed))
 
@@ -50,10 +70,17 @@ def _created(name: str = "taskbroker-test-activations-abc12") -> SimpleNamespace
 
 
 class _Result:
-    def __init__(self, exit_code: int, exception: BaseException | None, output: str) -> None:
+    def __init__(
+        self,
+        exit_code: int,
+        exception: BaseException | None,
+        output: str,
+        stdout: str = "",
+    ) -> None:
         self.exit_code = exit_code
         self.exception = exception
-        self.output = output
+        self.output = output  # stderr (status/error lines)
+        self.stdout = stdout  # stdout (dry-run manifest)
 
 
 def _run(
@@ -80,20 +107,22 @@ def _run(
         ["send-test-activations", "--timeout", "0", "--check-interval", "0", *(extra_args or [])]
     )
     buf = io.StringIO()
+    out = io.StringIO()
     with (
         mock.patch(f"{MOD}.load_kube_config"),
         mock.patch(f"{MOD}.client.AppsV1Api", return_value=apps),
         mock.patch(f"{MOD}.client.BatchV1Api", return_value=batch),
         contextlib.redirect_stderr(buf),
+        contextlib.redirect_stdout(out),
     ):
         try:
             args.func(args)
-            result = _Result(0, None, buf.getvalue())
+            result = _Result(0, None, buf.getvalue(), out.getvalue())
         except SystemExit as exc:
             code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
-            result = _Result(code, exc, buf.getvalue())
+            result = _Result(code, exc, buf.getvalue(), out.getvalue())
         except BaseException as exc:
-            result = _Result(1, exc, buf.getvalue())
+            result = _Result(1, exc, buf.getvalue(), out.getvalue())
     return result, batch
 
 
@@ -197,6 +226,17 @@ def test_times_out_when_job_never_completes() -> None:
     result, _ = _run(status_return=_status(succeeded=0, failed=0))
     assert result.exit_code != 0
     assert isinstance(result.exception, ProducerJobTimeoutError)
+
+
+def test_dry_run_prints_manifest_and_skips_create() -> None:
+    result, batch = _run(read_side_effect=[_real_deployment()], extra_args=["--dry-run"])
+    assert result.exit_code == 0
+    # nothing is created; the manifest is emitted to stdout for inspection.
+    batch.create_namespaced_job.assert_not_called()
+    batch.read_namespaced_job_status.assert_not_called()
+    assert '"kind": "Job"' in result.stdout
+    assert '"generateName": "taskbroker-test-activations-"' in result.stdout
+    assert "--kafka-topic=taskworker-canary" in result.stdout
 
 
 def test_main_reports_job_failure_as_clean_exit() -> None:
