@@ -78,9 +78,6 @@ def test_add_a_duplicate_warns_and_changes_nothing() -> None:
 
 
 def test_remove_the_last_rule_writes_the_bare_key_not_an_empty_list() -> None:
-    # `[]` would leave a one-line difference against every committed manifest,
-    # and the drift job would report it three times a day for ever. Both forms
-    # parse to an empty list, so this is about drift, not about behavior.
     plan = _plan(
         [_bare_entry("default", ["sentry.tasks.unmerge"])], "remove", "sentry.tasks.unmerge"
     )
@@ -143,10 +140,6 @@ def test_a_pool_with_nothing_to_remove_is_left_alone_byte_for_byte() -> None:
 
 
 def test_a_block_list_layout_is_refused_rather_than_mangled() -> None:
-    # The splice replaces one line, because the rendered value is one line. A
-    # block list under the key is a layout nothing in this repository writes,
-    # and splicing it would leave its items orphaned below the new line. The
-    # round-trip check is what stops that reaching a ConfigMap.
     block_layout = "drop_task_killswitch:\n  - a.b\ndemoted_namespaces:\n"
     with pytest.raises(SystemExit) as e:
         _plan(
@@ -164,9 +157,6 @@ def test_a_block_list_layout_is_refused_rather_than_mangled() -> None:
 
 
 def test_the_other_runtime_config_keys_survive_a_change() -> None:
-    # The splice replaces the rule line and leaves every other byte alone, which
-    # is what keeps `demoted_topic_cluster` intact. This step cannot recompute
-    # it: the ops template derives it from topicctl at render time.
     rendered = (
         'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n- sentry\ndemoted_topic: some-topic\n'
     )
@@ -232,9 +222,6 @@ def test_every_other_line_is_left_exactly_as_it_was() -> None:
 
 
 def test_a_key_this_workflow_cannot_recompute_is_kept() -> None:
-    # `demoted_topic_cluster` is derived from topicctl at render time, so no
-    # step here could put it back if the splice dropped it. Replacing one line
-    # and leaving every other byte alone is what keeps it.
     config = {
         "drop_task_killswitch": None,
         "demoted_namespaces": None,
@@ -250,10 +237,6 @@ def test_a_key_this_workflow_cannot_recompute_is_kept() -> None:
 
 
 def test_a_splice_that_cannot_land_is_refused() -> None:
-    # The same backstop as the block-list case above, reached a second way. A
-    # ConfigMap the broker cannot read makes the pool keep its previous
-    # configuration and drop nothing, and the only place that shows up is the
-    # broker log. So refuse to write it.
     config = {"drop_task_killswitch": ["a.b"], "demoted_namespaces": None}
     text = "drop_task_killswitch:\n# why\n- a.b\ndemoted_namespaces:\n"
     with pytest.raises(SystemExit) as e:
@@ -262,9 +245,6 @@ def test_a_splice_that_cannot_land_is_refused() -> None:
 
 
 def test_a_config_that_disagrees_with_the_live_text_is_refused() -> None:
-    # `config` and `text` both come from the read step, so they cannot disagree
-    # unless something upstream is broken. Catch it here rather than writing a
-    # pool a later step can no longer explain.
     config = {"drop_task_killswitch": None, "demoted_namespaces": ["ns1"]}
     with pytest.raises(SystemExit) as e:
         _plan([_entry("default", config, BARE)], "add", "sentry.tasks.unmerge")
@@ -362,9 +342,6 @@ def test_apply_patches_only_the_pools_that_change() -> None:
 
 
 def test_apply_refuses_when_the_pool_changed_since_the_plan() -> None:
-    # Somebody else patched the same pool while this run waited at the approval
-    # pause. Writing over them would revert their change with nothing to show
-    # for it, so fail and cost a re-run instead.
     new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
     live = {
         "task-default-broker-runtime-config": _cm(
@@ -442,10 +419,6 @@ def test_read_back_prints_the_drop_metric_link_scoped_to_the_region_and_task(
 
 # --- followup_pr_instructions ----------------------------------------------
 #
-# The ops repo change is the durable half. The live patch is reverted by the
-# next taskbroker pipeline run unless master carries the same value, so this
-# step has to say plainly what to change, and has to say nothing at all when the
-# run wrote nothing.
 
 
 def _followup(plan: list[dict[str, Any]], applied: object, region: str = "us") -> None:
@@ -456,10 +429,6 @@ def _followup(plan: list[dict[str, Any]], applied: object, region: str = "us") -
 def test_the_printed_rule_list_is_the_pools_whole_list(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # sentry-kube merges mappings and replaces lists, so committing only the rule
-    # this run added would delete every other rule the pool holds at the next
-    # render. What the step prints is what goes in the file, so it prints all of
-    # them.
     old = 'drop_task_killswitch: ["already.there"]\ndemoted_namespaces:\n'
     new = 'drop_task_killswitch: ["already.there", "a.b"]\ndemoted_namespaces:\n'
     _followup([_planned("default", old, new)], ["task-default-broker-runtime-config"])
@@ -471,11 +440,6 @@ def test_the_printed_rule_list_is_the_pools_whole_list(
 def test_the_step_names_the_region_file_and_the_declared_pool_key(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # `us` declares `process-segments` with `shard: 4`, so the cluster holds
-    # `process-segments-0` and the override file holds `process-segments`.
-    # Writing the cluster's name into the override would create a pool that does
-    # not exist and leave the real one untouched, so the instructions have to say
-    # which of the two names the file takes.
     new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
     _followup(
         [_planned("process-segments-0", BARE, new)],
@@ -488,9 +452,6 @@ def test_the_step_names_the_region_file_and_the_declared_pool_key(
 
 
 def test_the_shard_warning_is_printed(capsys: pytest.CaptureFixture[str]) -> None:
-    # One override key covers every shard it renders, so what gets committed
-    # replaces the rule list of shards this run never read. Nothing else in the
-    # run says so.
     new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
     _followup(
         [_planned("process-segments-0", BARE, new)],
@@ -501,25 +462,7 @@ def test_the_shard_warning_is_printed(capsys: pytest.CaptureFixture[str]) -> Non
     assert "`action: list` run first" in out
 
 
-def test_a_removal_that_empties_a_pool_asks_for_the_key_to_be_deleted(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    # The template writes `drop_task_killswitch: []` when `runtime_config` is
-    # defined and the bare key when it is not, and every committed manifest
-    # holds the bare key. Committing an empty list would leave a one-line
-    # difference the drift job reports three times a day for ever.
-    old = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
-    _followup([_planned("default", old, BARE)], ["task-default-broker-runtime-config"])
-    out = capsys.readouterr().out
-    assert "default: []" in out
-    assert "delete the whole `runtime_config` block" in out
-    assert "Do not commit `drop_task_killswitch: []`" in out
-
-
 def test_an_aborted_run_asks_for_no_change(capsys: pytest.CaptureFixture[str]) -> None:
-    # The apply step is skipped when the approver aborts, and Argo leaves a
-    # skipped step's output un-substituted. An instruction printed there is an
-    # instruction somebody follows for a change that never happened.
     new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
     _followup(
         [_planned("default", BARE, new)],

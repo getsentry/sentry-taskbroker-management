@@ -101,10 +101,6 @@ def test_all_reads_every_pool_the_repo_declares_and_nothing_else() -> None:
         [
             _cm("task-default-broker-runtime-config", {"runtime-config": BARE}),
             _cm("task-ingest-errors-broker-runtime-config", {"runtime-config": BARE}),
-            # In the cluster and not in the repo inventory below, so never read.
-            # The Role pins `patch` to the repo's names, so such a pool was never
-            # actionable; leaving it out is what lets the Role drop its
-            # unrestricted read.
             _cm("task-rogue-broker-runtime-config", {"runtime-config": BARE}),
         ],
         live_pools=["default", "ingest-errors"],
@@ -119,9 +115,6 @@ def test_all_reads_every_pool_the_repo_declares_and_nothing_else() -> None:
 
 
 def test_the_step_never_lists_the_namespace() -> None:
-    # The property the Role depends on. Kubernetes does not apply `resourceNames`
-    # to `list`, so one list call here would mean read access to every ConfigMap
-    # in `default`. Reading by name is what keeps the Role to one pinned rule.
     core = _run([_cm("task-default-broker-runtime-config", {"runtime-config": BARE})])
     core.list_namespaced_config_map.assert_not_called()
 
@@ -169,9 +162,6 @@ def test_a_named_pool_missing_from_the_cluster_fails() -> None:
 def test_all_skips_a_declared_pool_the_cluster_has_not_created(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # The other side of the case above. A pool the repo declares and the cluster
-    # has not created yet must not block a killswitch on every other pool during
-    # an incident, so `all` notes it and carries on.
     _run(
         [_cm("task-default-broker-runtime-config", {"runtime-config": BARE})],
         live_pools=["default", "not-created-yet"],
@@ -266,8 +256,6 @@ def test_the_rules_are_reported_as_the_task_names_they_are() -> None:
         _rendered('["a.b"]'),
         # Every other key is somebody else's, and the splice leaves them alone.
         _rendered('["a.b"]', extra="demoted_topic: t\ndemoted_topic_cluster: a,b\n"),
-        # `demoted_namespaces` is not this workflow's business either, so its
-        # absence is not this step's problem.
         "drop_task_killswitch: []\n",
     ],
 )

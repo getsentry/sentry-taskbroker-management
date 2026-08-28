@@ -1,26 +1,16 @@
 """
 The taskbroker killswitch: read, plan, apply, confirm and follow up on the
 `drop_task_killswitch` rules a region's broker runtime-config ConfigMaps hold.
-
-A killswitch rule is a task name and nothing else, so the rules are a list of
-strings. Taskbroker also reads selector rules, which drop only the activations
-carrying a given argument, but nothing here writes one.
-
 Each function here is one step of the ops repo's `taskbroker-killswitch` Argo
 workflow. The ops repo wires them into Argo templates; this module holds the
-taskbroker-specific half, so the rules of the ConfigMap live beside the rest of
-the taskbroker management code rather than in the ops repo.
+taskbroker-specific half.
 
-Two constraints come from how the ops repo runs these, and both have to hold:
-
+Two constraints come from how the ops repo runs these:
 * Each function body is inlined as the whole script of a container, so a
   function may only use its own parameters, its own local imports and the
   standard library. Nothing at module level reaches the container.
 * Parameter names are the Argo input parameter names, so renaming one is a
   change to the ops repo's workflow, not a local rename.
-
-The parameters arrive as text, and Argo's preamble parses whatever happens to
-look like JSON, so each function takes the value either way.
 """
 
 
@@ -47,8 +37,7 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
     if not want_all and not selected:
         raise SystemExit("pools is required: a comma separated list of pool names, or 'all'.")
 
-    # The pool names the ops repo renders for this region.
-    # `all` means every pool in that list, not every pool the cluster happens to hold
+    # `all` means every pool the ops repo declares, not every pool the cluster holds
     live_pools = (
         live_pools_json if isinstance(live_pools_json, dict) else json.loads(live_pools_json)
     )
@@ -162,9 +151,6 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
         report.append(entry)
 
     with open("/tmp/killswitches.json", "w") as f:
-        # `default=str` because `config` is whatever YAML held. A bare date
-        # in a runtime-config is not something taskbroker reads, but it must
-        # not make this step die on the way out with the report unwritten.
         json.dump(report, f, default=str)
 
     print(f"namespace={namespace} pools={pools}")
@@ -190,8 +176,6 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
 
     print(f"{len(with_rules)} of {len(chosen)} selected pool(s) hold killswitch rules.")
 
-    # Grouped by task name, because a killswitch is applied per pool and a task
-    # usually runs in several
     by_task: dict[str, list[str]] = {}
     for entry in report:
         for rule in entry["rules"]:
@@ -219,9 +203,7 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
 
 
 def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
-    # Work out the exact `runtime-config` text each selected pool would hold,
-    # print a diff per pool, and write the plan to /tmp/plan.json. The change is
-    # spliced into the live text.
+    # Work out what each selected pool would hold in order to produce a diff
     import difflib
     import json
     import re
@@ -234,11 +216,6 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
     if not isinstance(report, list):
         raise SystemExit(f"killswitches must be a JSON array, got a {type(report).__name__}")
 
-    # `validate-input` writes the rule with `json.dump`, so it reaches this
-    # step as `"sentry.tasks.unmerge"`, quotes included. Hera's preamble
-    # parses that, but do not depend on it: parse what is still text, and
-    # leave anything that is not JSON alone, because a bare task name is
-    # not.
     rule = rule_json
     if isinstance(rule, str):
         try:
@@ -249,21 +226,7 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
         raise SystemExit(f"action must be 'add' or 'remove', got {action!r}")
 
     def splice(old_text: str, rules: list[str], pool: str) -> str:
-        # Put `rules` into `old_text` and leave every other byte alone.
-        #
-        # The rule list is written as one line of JSON with sorted keys, which
-        # is what the Jinja `tojson` filter in `_broker.runtime-configmap.yaml.j2`
-        # produces, so a pool this workflow patches and a pool the ops pipeline
-        # renders hold the same line. An empty list is written as the bare key
-        # `drop_task_killswitch:` rather than as `[]`, because no region override
-        # defines `broker.runtime_config` today, so the bare key is what every
-        # committed manifest holds and what the drift job compares against. Both
-        # forms parse to an empty list, so that choice is about drift, not about
-        # behavior.
-        #
-        # The value is always one line, because `tojson` writes one line and
-        # so does this step, so replacing that line is the whole splice.
-        # `check_splice` is what catches it if that ever stops being true.
+        # Write the line exactly as the ops repo's template renders it
         new_line = (
             "drop_task_killswitch: " + json.dumps(rules, sort_keys=True)
             if rules
@@ -294,8 +257,6 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
                 f"{pool}: the new runtime-config reads back as a "
                 f"{type(parsed).__name__}, expected a mapping. Refusing to write it."
             )
-        # Every key but this one is untouched text, so comparing against the
-        # config the read step parsed proves the splice hit only the rules.
         wanted = dict(config, drop_task_killswitch=list(rules))
         got = dict(
             parsed,
@@ -349,8 +310,6 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
                 "configmap": entry["configmap"],
                 "old_text": old_text,
                 "new_text": new_text,
-                # The rule list as a list, so the followup-PR step can print it
-                # without parsing the YAML text back out again.
                 "rules": rules,
                 "changed": changed,
                 "note": note,
@@ -465,8 +424,6 @@ def apply_change(plan_json: str, namespace: str) -> None:
 
 
 def read_back(plan_json: str, namespace: str, region: str, task_name: str) -> None:
-    # Re-read every patched ConfigMap and fail unless it holds exactly the text
-    # the plan wrote, then print where to see whether taskbroker took it
     import json
     from urllib.parse import quote
 
@@ -530,13 +487,6 @@ def read_back(plan_json: str, namespace: str, region: str, task_name: str) -> No
 
 
 def followup_pr_instructions(plan_json: str, applied_json: str, region: str) -> None:
-    # Say what the ops repo has to change so this run becomes durable, and
-    # print the rule list each patched pool now holds.
-    #
-    # This prints instructions, not a block to paste. The override file
-    # declares a sharded pool under one key and carries other settings under
-    # it, so the edit is a merge into what the file already has. A person or
-    # an agent does that merge in the file, where both halves are visible.
     import json
 
     REGION_FILE = "k8s/services/taskbroker/region_overrides/{region}/default.yaml"
@@ -545,7 +495,6 @@ def followup_pr_instructions(plan_json: str, applied_json: str, region: str) -> 
     if not isinstance(plan, list):
         raise SystemExit(f"plan must be a JSON array, got a {type(plan).__name__}")
 
-    # a run that wrote nothing must not tell anybody to change master
     applied: object = applied_json
     if isinstance(applied, str):
         try:
@@ -579,19 +528,10 @@ def followup_pr_instructions(plan_json: str, applied_json: str, region: str) -> 
         print(
             "  2. Under that key, set `broker.runtime_config.drop_task_killswitch` to "
             "the rule list printed below. Merge into the key the file already has, and "
-            "do not add a second copy of it. Everything else under the key stays: "
-            "sentry-kube merges mappings and replaces lists."
+            "do not add a second copy of it. Everything else under the key stays."
         )
         print(
-            "  3. When the rule list is empty, remove `drop_task_killswitch`. If "
-            "`runtime_config` then holds nothing else, no `demoted_namespaces` and no "
-            "`demoted_topic`, delete the whole `runtime_config` block. Do not commit "
-            "`drop_task_killswitch: []`: the template writes the bare key when "
-            "`runtime_config` is not defined, so an empty list is drift the daily job "
-            "reports for ever."
-        )
-        print(
-            "  4. One key sets every shard it renders. If this run patched only some "
+            "  3. One key sets every shard it renders. If this run patched only some "
             "shards of a pool, what you commit replaces the rule list of the other "
             "shards too. Read them with an `action: list` run first, and commit a list "
             "that is correct for all of them."
@@ -599,8 +539,6 @@ def followup_pr_instructions(plan_json: str, applied_json: str, region: str) -> 
         print("")
         print("Rule list each patched pool now holds:")
         for pool in sorted(patched):
-            # Printed in the order the pool holds them, which is the order
-            # the file has to carry.
             print(f"    {pool}: {json.dumps(patched[pool])}")
         print("")
         print("This pull request represents the durable change.")
