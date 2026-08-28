@@ -355,6 +355,60 @@ def test_apply_refuses_when_the_pool_changed_since_the_plan() -> None:
     assert "no longer the one this run planned against" in str(e.value)
 
 
+def test_one_drifted_pool_stops_the_run_before_any_pool_is_written() -> None:
+    # The whole point of reading every pool first: a partial apply leaves live
+    # patches that no later step of this run can report.
+    new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
+    plan = [_planned("default", BARE, new), _planned("long", BARE, new)]
+    live = {
+        "task-default-broker-runtime-config": _cm("task-default-broker-runtime-config", BARE),
+        "task-long-broker-runtime-config": _cm(
+            "task-long-broker-runtime-config",
+            'drop_task_killswitch: ["c.d"]\ndemoted_namespaces:\n',
+        ),
+    }
+    with pytest.raises(SystemExit) as e:
+        _apply(plan, live)
+    assert "Nothing has been written, to any pool" in str(e.value)
+
+
+def test_the_drift_message_names_every_pool_that_drifted() -> None:
+    new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
+    other = 'drop_task_killswitch: ["c.d"]\ndemoted_namespaces:\n'
+    plan = [_planned("default", BARE, new), _planned("long", BARE, new)]
+    live = {
+        "task-default-broker-runtime-config": _cm("task-default-broker-runtime-config", other),
+        "task-long-broker-runtime-config": _cm("task-long-broker-runtime-config", other),
+    }
+    with pytest.raises(SystemExit) as e:
+        _apply(plan, live)
+    assert "task-default-broker-runtime-config" in str(e.value)
+    assert "task-long-broker-runtime-config" in str(e.value)
+
+
+def test_a_write_that_fails_part_way_names_the_pools_it_already_patched(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    new = 'drop_task_killswitch: ["a.b"]\ndemoted_namespaces:\n'
+    plan = [_planned("default", BARE, new), _planned("long", BARE, new)]
+    live = {
+        "task-default-broker-runtime-config": _cm("task-default-broker-runtime-config", BARE),
+        "task-long-broker-runtime-config": _cm("task-long-broker-runtime-config", BARE),
+    }
+    with (
+        mock.patch("kubernetes.config.load_kube_config"),
+        mock.patch("kubernetes.client.CoreV1Api") as Core,
+    ):
+        core = Core.return_value
+        core.read_namespaced_config_map.side_effect = lambda name, ns: live[name]
+        core.patch_namespaced_config_map.side_effect = [None, RuntimeError("apiserver said no")]
+        with pytest.raises(RuntimeError):
+            killswitch.apply_change(json.dumps(plan), NS)
+    out = capsys.readouterr().out
+    assert "task-default-broker-runtime-config" in out
+    assert "not durable" in out
+
+
 def test_apply_refuses_a_configmap_that_is_not_a_broker_runtime_config() -> None:
     plan = [_planned("default", BARE, BARE)]
     plan[0]["configmap"] = "some-other-configmap"

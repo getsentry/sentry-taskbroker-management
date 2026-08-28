@@ -370,7 +370,6 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
 
 
 def apply_change(plan_json: str, namespace: str) -> None:
-    # Patch each ConfigMap the plan says would change, and only those.
     import json
 
     from kubernetes import client, config  # type: ignore[import-untyped]
@@ -382,37 +381,59 @@ def apply_change(plan_json: str, namespace: str) -> None:
     if not isinstance(plan, list):
         raise SystemExit(f"plan must be a JSON array, got a {type(plan).__name__}")
 
-    config.load_kube_config()
-    core = client.CoreV1Api()
-
-    applied = []
-    for item in plan:
-        if not item.get("changed"):
-            continue
+    wanted = [item for item in plan if item.get("changed")]
+    for item in wanted:
         name = item["configmap"]
         if not (name.startswith(PREFIX) and name.endswith(SUFFIX)):
             raise SystemExit(f"refusing to patch '{name}': not a broker runtime-config")
 
+    config.load_kube_config()
+    core = client.CoreV1Api()
+
+    ready = []
+    drifted = []
+    for item in wanted:
+        name = item["configmap"]
         live = core.read_namespaced_config_map(name, namespace)
         live_text = (live.data or {}).get("runtime-config")
-        if live_text != item["old_text"]:
-            raise SystemExit(
-                f"{name}: the live runtime-config is no longer the one this run planned "
-                "against, so somebody changed it after the plan was printed. Nothing has "
-                "been written to this pool. Re-run the workflow to plan against what the "
-                "pool holds now."
-            )
+        if live_text == item["old_text"]:
+            ready.append((item, live.metadata.resource_version))
+        else:
+            drifted.append(name)
 
-        core.patch_namespaced_config_map(
-            name,
-            namespace,
-            {
-                "metadata": {"resourceVersion": live.metadata.resource_version},
-                "data": {"runtime-config": item["new_text"]},
-            },
+    if drifted:
+        raise SystemExit(
+            f"{len(drifted)} ConfigMap(s) hold a runtime-config that is no longer the one "
+            f"this run planned against: {sorted(drifted)}. Somebody changed them after the "
+            "plan was printed. Nothing has been written, to any pool. Re-run the workflow "
+            "to plan against what the pools hold now."
         )
-        applied.append(name)
-        print(f"{name}: patched")
+
+    applied: list[str] = []
+    try:
+        for item, resource_version in ready:
+            name = item["configmap"]
+            core.patch_namespaced_config_map(
+                name,
+                namespace,
+                {
+                    "metadata": {"resourceVersion": resource_version},
+                    "data": {"runtime-config": item["new_text"]},
+                },
+            )
+            applied.append(name)
+            print(f"{name}: patched")
+    except Exception:
+        if applied:
+            print("")
+            print(
+                f"{len(applied)} ConfigMap(s) were patched before this failure and hold "
+                f"the rule now: {sorted(applied)}. The change is not durable. Name these "
+                "pools in the ops repo pull request yourself, or take the rule off them "
+                "with a `remove` run. A re-run of this workflow will not name them, "
+                "because it plans them as already changed."
+            )
+        raise
 
     with open("/tmp/applied.json", "w") as f:
         json.dump(applied, f)
