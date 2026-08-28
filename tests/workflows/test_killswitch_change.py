@@ -259,6 +259,19 @@ def test_a_report_entry_with_no_config_is_a_workflow_bug_not_an_operator_one() -
     assert "bug in this workflow" in str(e.value)
 
 
+def test_a_rule_that_is_not_a_task_name_is_refused() -> None:
+    for bad in ({"name": "a.b"}, 42, ["a.b"], None):
+        with pytest.raises(SystemExit) as e:
+            _plan([_bare_entry("default")], "add", bad)
+        assert "not a task name" in str(e.value)
+
+
+def test_the_round_trip_check_does_not_catch_a_rule_that_is_not_a_task_name() -> None:
+    rules: list[Any] = [{"name": "a.b"}]
+    line = f"drop_task_killswitch: {json.dumps(rules, sort_keys=True)}\n"
+    assert yaml.safe_load(line) == {"drop_task_killswitch": rules}
+
+
 def test_the_plan_takes_the_report_as_hera_hands_it_over() -> None:
     # Hera's preamble parses every parameter as JSON, so the report arrives as a
     # list of dicts rather than as the text the previous step wrote.

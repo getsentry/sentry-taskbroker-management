@@ -222,6 +222,14 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
             rule = json.loads(rule)
         except ValueError:
             pass
+    if not isinstance(rule, str):
+        raise SystemExit(
+            f"rule arrived as a {type(rule).__name__}, not a task name. A rule is one "
+            "activation task name, for example "
+            "'sentry.replays.tasks.delete_recording_async'. The validate step of the ops "
+            "repo already refuses anything else, so this is a bug in the caller rather "
+            "than something an operator can fix by re-running."
+        )
     if action not in ("add", "remove"):
         raise SystemExit(f"action must be 'add' or 'remove', got {action!r}")
 
