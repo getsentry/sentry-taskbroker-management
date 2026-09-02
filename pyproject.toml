@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">= 3.11"
 dependencies = [
   "kubernetes>=29.0.0",
+  "PyYAML>=6.0.0",
 ]
 
 [project.scripts]
@@ -23,7 +24,8 @@ dev = [
   "pre-commit>=4.1.0",
   "black>=24.10.0",
   "isort>=5.13.0",
-  "flake8>=7.1.1"
+  "flake8>=7.1.1",
+  "types-PyYAML>=6.0.12"
 ]
 
 [tool.uv]

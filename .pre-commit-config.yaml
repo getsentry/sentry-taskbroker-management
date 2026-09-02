@@ -42,6 +42,9 @@ repos:
         files: ^(sentry_taskbroker_management|tests)/.*\.py$
         types: [python]
         language: system
+        # mypy keeps one cache directory, so parallel batches race on it and
+        # crash. pre-commit splits the file list once it grows past a chunk.
+        require_serial: true
 
 default_language_version:
   python: "3.12.6"
