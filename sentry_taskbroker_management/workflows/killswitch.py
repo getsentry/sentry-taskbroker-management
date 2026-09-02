@@ -17,7 +17,7 @@ Two constraints come from how the ops repo runs these:
 def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: str) -> None:
     # Read the `task-*-broker-runtime-config` ConfigMap of each selected pool
     import json
-    from typing import Any
+    from typing import Any, TypedDict
 
     import yaml
     from kubernetes import client, config  # type: ignore[import-untyped]
@@ -25,6 +25,18 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
 
     PREFIX = "task-"
     SUFFIX = "-broker-runtime-config"
+
+    class PoolEntry(TypedDict):
+        """
+        What this step reports for one selected pool.
+        """
+
+        pool: str
+        configmap: str
+        rules: list[str]
+        problems: list[str]
+        text: str | None
+        config: dict[str, Any] | None
 
     if not isinstance(pools, str):
         raise SystemExit(
@@ -112,10 +124,10 @@ def list_killswitches(pools: str, region: str, live_pools_json: str, namespace: 
 
     chosen = sorted(found)
 
-    report = []
+    report: list[PoolEntry] = []
     for pool in chosen:
         cm = found[pool]
-        entry: dict[str, Any] = {
+        entry: PoolEntry = {
             "pool": pool,
             "configmap": cm.metadata.name,
             "rules": [],
@@ -207,8 +219,22 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
     import difflib
     import json
     import re
+    from typing import TypedDict
 
     import yaml
+
+    class PlanEntry(TypedDict):
+        """
+        What this step plans for one selected pool.
+        """
+
+        pool: str
+        configmap: str
+        old_text: str
+        new_text: str
+        rules: list[str]
+        changed: bool
+        note: str
 
     report = (
         json.loads(killswitches_json) if isinstance(killswitches_json, str) else (killswitches_json)
@@ -277,7 +303,7 @@ def plan_change(killswitches_json: str, action: str, rule_json: str) -> None:
                 "it. Patch this pool by hand with the runbook."
             )
 
-    plan = []
+    plan: list[PlanEntry] = []
     changed_pools = []
     for entry in report:
         pool = entry["pool"]
