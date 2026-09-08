@@ -1,2 +1,4 @@
 [flake8]
 max-line-length = 100
+# E203 is black's slice spacing, which flake8 reads as an error.
+extend-ignore = E203
