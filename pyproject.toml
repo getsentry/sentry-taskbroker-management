@@ -7,7 +7,7 @@ name = "sentry_taskbroker_management"
 version = "0.0.1"
 description = "Libraries used by Sentry for Taskbroker management"
 readme = "README.md"
-requires-python = ">= 3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
   "kubernetes>=29.0.0",
   "PyYAML>=6.0.0",
